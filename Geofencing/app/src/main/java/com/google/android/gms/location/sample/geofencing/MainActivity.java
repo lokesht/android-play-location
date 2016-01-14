@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Google Inc. All Rights Reserved.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
+ * <p>
  * http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,7 +19,10 @@ package com.google.android.gms.location.sample.geofencing;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
+import android.location.Location;
 import android.os.Bundle;
+import android.support.v4.app.FragmentActivity;
 import android.support.v7.app.ActionBarActivity;
 import android.util.Log;
 import android.view.View;
@@ -34,29 +37,42 @@ import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.common.api.Status;
 import com.google.android.gms.location.Geofence;
 import com.google.android.gms.location.GeofencingRequest;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.GeofencingApi;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.LocationSource;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.CircleOptions;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.MarkerOptions;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * Demonstrates how to create and remove geofences using the GeofencingApi. Uses an IntentService
  * to monitor geofence transitions and creates notifications whenever a device enters or exits
  * a geofence.
- *
+ * <p>
  * This sample requires a device's Location settings to be turned on. It also requires
  * the ACCESS_FINE_LOCATION permission, as specified in AndroidManifest.xml.
- *
+ * <p>
  * Note that this Activity implements ResultCallback<Status>, requiring that
  * {@code onResult} must be defined. The {@code onResult} runs when the result of calling
  * {@link GeofencingApi#addGeofences(GoogleApiClient, GeofencingRequest, PendingIntent)}  addGeofences()} or
  * {@link com.google.android.gms.location.GeofencingApi#removeGeofences(GoogleApiClient, java.util.List)}  removeGeofences()}
  * becomes available.
  */
-public class MainActivity extends ActionBarActivity implements
-        ConnectionCallbacks, OnConnectionFailedListener, ResultCallback<Status> {
+public class MainActivity extends FragmentActivity implements
+        ConnectionCallbacks, OnConnectionFailedListener, ResultCallback<Status>, OnMapReadyCallback, LocationSource.OnLocationChangedListener, LocationListener {
+
+    static boolean isFirstTime = true;
+    private GoogleMap mMap;
 
     protected static final String TAG = "MainActivity";
 
@@ -89,6 +105,10 @@ public class MainActivity extends ActionBarActivity implements
     private Button mAddGeofencesButton;
     private Button mRemoveGeofencesButton;
 
+    Location mCurrentLocation;
+
+    LocationRequest mLocationRequest;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -112,11 +132,13 @@ public class MainActivity extends ActionBarActivity implements
         mGeofencesAdded = mSharedPreferences.getBoolean(Constants.GEOFENCES_ADDED_KEY, false);
         setButtonsEnabledState();
 
-        // Get the geofences used. Geofence data is hard coded in this sample.
-        populateGeofenceList();
-
         // Kick off the request to build GoogleApiClient.
         buildGoogleApiClient();
+
+        // Obtain the SupportMapFragment and get notified when the map is ready to be used.
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.map);
+        mapFragment.getMapAsync(this);
     }
 
     /**
@@ -147,6 +169,14 @@ public class MainActivity extends ActionBarActivity implements
      */
     @Override
     public void onConnected(Bundle connectionHint) {
+
+        mLocationRequest = LocationRequest.create();
+        mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+        mLocationRequest.setFastestInterval(5000);
+        mLocationRequest.setInterval(10000);
+
+        LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
+
         Log.i(TAG, "Connected to GoogleApiClient");
     }
 
@@ -240,7 +270,7 @@ public class MainActivity extends ActionBarActivity implements
     /**
      * Runs when the result of calling addGeofences() and removeGeofences() becomes available.
      * Either method can complete successfully or with an error.
-     *
+     * <p>
      * Since this activity implements the {@link ResultCallback} interface, we are required to
      * define this method.
      *
@@ -296,31 +326,46 @@ public class MainActivity extends ActionBarActivity implements
      * the user's location.
      */
     public void populateGeofenceList() {
-        for (Map.Entry<String, LatLng> entry : Constants.BAY_AREA_LANDMARKS.entrySet()) {
 
-            mGeofenceList.add(new Geofence.Builder()
-                    // Set the request ID of the geofence. This is a string to identify this
-                    // geofence.
-                    .setRequestId(entry.getKey())
+        // for (Map.Entry<String, LatLng> entry : Constants.BAY_AREA_LANDMARKS.entrySet()) {
+        if (mCurrentLocation != null) {
+            HashMap<String, LatLng> BAY_AREA_LANDMARKS = new HashMap<String, LatLng>();
+            BAY_AREA_LANDMARKS.put("Workindia", new LatLng(mCurrentLocation.getLatitude(), mCurrentLocation.getLongitude()));
 
-                    // Set the circular region of this geofence.
-                    .setCircularRegion(
-                            entry.getValue().latitude,
-                            entry.getValue().longitude,
-                            Constants.GEOFENCE_RADIUS_IN_METERS
-                    )
 
-                    // Set the expiration duration of the geofence. This geofence gets automatically
-                    // removed after this period of time.
-                    .setExpirationDuration(Constants.GEOFENCE_EXPIRATION_IN_MILLISECONDS)
+            for (Map.Entry<String, LatLng> entry : BAY_AREA_LANDMARKS.entrySet()) {
 
-                    // Set the transition types of interest. Alerts are only generated for these
-                    // transition. We track entry and exit transitions in this sample.
-                    .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER |
-                            Geofence.GEOFENCE_TRANSITION_EXIT)
+                mGeofenceList.add(new Geofence.Builder()
+                        // Set the request ID of the geofence. This is a string to identify this
+                        // geofence.
+                        .setRequestId(entry.getKey())
 
-                    // Create the geofence.
-                    .build());
+                        // Set the circular region of this geofence.
+                        .setCircularRegion(
+                                entry.getValue().latitude,
+                                entry.getValue().longitude,
+                                Constants.GEOFENCE_RADIUS_IN_METERS
+                        )
+
+                        // Set the expiration duration of the geofence. This geofence gets automatically
+                        // removed after this period of time.
+                        .setExpirationDuration(Constants.GEOFENCE_EXPIRATION_IN_MILLISECONDS)
+
+                        // Set the transition types of interest. Alerts are only generated for these
+                        // transition. We track entry and exit transitions in this sample.
+                        .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER |
+                                Geofence.GEOFENCE_TRANSITION_EXIT)
+
+                        // Create the geofence.
+                        .build());
+
+
+                mMap.addCircle(new CircleOptions()
+                        .center(new LatLng(mCurrentLocation.getLatitude(), mCurrentLocation.getLongitude()))
+                        .radius(Constants.GEOFENCE_RADIUS_IN_METERS)
+                        .strokeColor(Color.RED)
+                        .fillColor(Color.BLUE));
+            }
         }
     }
 
@@ -338,4 +383,47 @@ public class MainActivity extends ActionBarActivity implements
             mRemoveGeofencesButton.setEnabled(false);
         }
     }
+
+    /**
+     * Manipulates the map once available.
+     * This callback is triggered when the map is ready to be used.
+     * This is where we can add markers or lines, add listeners or move the camera. In this case,
+     * we just add a marker near Sydney, Australia.
+     * If Google Play services is not installed on the device, the user will be prompted to install
+     * it inside the SupportMapFragment. This method will only be triggered once the user has
+     * installed Google Play services and returned to the app.
+     */
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
+        mMap = googleMap;
+
+        // Add a marker in Sydney and move the camera
+        LatLng sydney = new LatLng(-34, 151);
+        mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+
+        Toast.makeText(MainActivity.this, "Location changed", Toast.LENGTH_SHORT).show();
+        mCurrentLocation = location;
+        // Add a marker in Sydney and move the camera
+        LatLng sydney = new LatLng(location.getLatitude(), location.getLongitude());
+        if (mMap != null) {
+            mMap.addMarker(new MarkerOptions().position(sydney).title("Your current Location"));
+
+            if (isFirstTime) {
+                mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(sydney, 12));
+                populateGeofenceList();
+                isFirstTime = false;
+            }
+        }
+
+    }
+
+    protected void startLocationUpdates() {
+        // LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
+    }
+
 }
